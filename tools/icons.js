@@ -4,9 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 
-const HINTERGRUND = [180, 83, 47];   // #b4532f
-const TELLER = [251, 244, 234];      // #fbf4ea
-const TELLER_INNEN = [240, 224, 204];
+const HINTERGRUND = [0, 66, 37];     // #004225 British Racing Green
+const TELLER = [244, 239, 225];      // #f4efe1
+const TELLER_INNEN = [201, 165, 90]; // Messing
 
 // Formen in Einheitskoordinaten (0…1)
 const kreis = (cx, cy, r) => (x, y) => (x - cx) ** 2 + (y - cy) ** 2 <= r * r;

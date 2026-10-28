@@ -57,6 +57,7 @@
   const ICON = {
     nein: '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>',
     egal: '<svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>',
+    anders: '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5M19 4v4h-4"/></svg>',
     mag: '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
   };
 
@@ -161,6 +162,7 @@
     formularNeu: {},  // id → Name für frei eingegebene, noch nicht gespeicherte Zutaten
     editor: null,
     imHausSuche: '',
+    karteNeu: false, // nächste Karte mit „Nachrutschen“-Animation zeigen
     installieren: null,
   };
 
@@ -332,25 +334,21 @@
     return { liste, eintrag };
   }
 
-  function begruessung() {
-    const h = new Date().getHours();
-    if (h < 11) return 'Guten Morgen';
-    if (h < 17) return 'Hallo';
-    return 'Guten Abend';
-  }
-
   function filterAktiv() {
     return z.filter.maxZeit || z.filter.vegetarisch || z.filter.imHaus.length;
   }
 
+  const fmtWochentag = new Intl.DateTimeFormat('de-DE', { weekday: 'long' });
+
   function ansichtHeute() {
     heuteAktualisieren();
     const stand = einrichtungsStand();
+    const eintrag = eintragAm(z.heute.datum);
     let html = `
-      <header class="kopf"><div>
-        <div class="datum">${esc(fmtLang.format(new Date()))}</div>
-        <h1>${begruessung()}!</h1>
-      </div></header>`;
+      <header class="kopf mitte">
+        <div class="kapitel">${esc(fmtWochentag.format(new Date()))} · Abendkarte</div>
+        <h1>${eintrag ? 'Heute Abend' : 'Heute im Angebot'}</h1>
+      </header>`;
 
     if (!z.einrichtung.abgeschlossen) {
       html += `
@@ -360,20 +358,19 @@
         </div></div>`;
     }
 
-    const eintrag = eintragAm(z.heute.datum);
     if (eintrag) {
       const g = eintrag.gerichtId && gerichtVon(eintrag.gerichtId);
       return html + `
-        <section class="karte eingetragen einblenden">
+        <section class="eingetragen einblenden"><div class="rahmen">
           <div class="emoji">${g ? emojiFuer(g) : '🍽️'}</div>
-          <div class="leise klein">Heute Abend gibt es</div>
+          <div class="kapitel">Heute Abend gibt es</div>
           <h1>${esc(eintrag.titel)}</h1>
-          <p class="leise">Guten Appetit!</p>
+          <p class="kursiv">Bon appétit</p>
           <div class="knopfreihe">
             ${g && g.link ? `<a class="knopf rahmen" href="${esc(g.link)}" target="_blank" rel="noopener">Rezept öffnen ↗</a>` : ''}
             <button class="knopf still" data-aktion="heute-aendern">Doch etwas anderes</button>
           </div>
-        </section>`;
+        </div></section>`;
     }
 
     html += filterleisteHtml();
@@ -409,42 +406,117 @@
     }
 
     const g = vorschlag.gericht;
+    const index = lmIndex();
+    // „Nr. 07“ wie auf einer Speisekarte: Position in der alphabetischen Gerichteliste
+    const nr = [...z.gerichte].sort((a, b) => vergleich(a.name, b.name)).findIndex((x) => x.id === g.id) + 1;
+    const kapitel = [`Nr. ${String(nr).padStart(2, '0')}`, g.zeit ? fmtZeit(g.zeit) : '', g.menge].filter(Boolean).map(esc).join(' · ');
+    const zutatenzeile = g.zutaten.slice(0, 6).map((id) => {
+      const w = z.bewertungen[id];
+      return `<span class="${w === 'mag' ? 'mag' : w === 'nicht' ? 'nicht' : ''}">${esc(lmName(id, index))}${w === 'mag' ? ' ♥' : ''}</span>`;
+    }).join(' · ') + (g.zutaten.length > 6 ? ' …' : '');
     const gruende = vorschlag.gruende.length
       ? vorschlag.gruende.map((r) => `<li><span>${esc(r.text)}</span><span class="${r.punkte > 0 ? 'plus' : 'minus'}">${r.punkte > 0 ? '+' : '−'}${Math.abs(r.punkte)}</span></li>`).join('')
       : '<li><span>Keine Besonderheiten – neutrale Wahl</span><span>0</span></li>';
     const imHausText = vorschlag.imHaus
-      ? `<p class="klein leise">${vorschlag.imHaus.fehlend.length ? `Fehlt noch: ${esc(vorschlag.imHaus.fehlend.map((id) => lmName(id)).join(', '))}` : 'Alles im Haus ✓'}</p>`
+      ? `<p class="klein leise">${vorschlag.imHaus.fehlend.length ? `Fehlt noch: ${esc(vorschlag.imHaus.fehlend.map((id) => lmName(id, index)).join(', '))}` : 'Alles im Haus ✓'}</p>`
       : '';
+    const neu = ui.karteNeu;
+    ui.karteNeu = false;
 
     return html + `
-      <article class="karte vorschlag einblenden">
-        ${bildHtml(g)}
-        <div class="inhalt">
-          <div class="leise klein">Vorschlag für heute Abend</div>
-          <h1>${esc(g.name)}</h1>
-          <div class="meta">
-            ${g.zeit ? `<span>⏱ ${fmtZeit(g.zeit)}</span>` : ''}
-            ${g.menge ? `<span>${esc(g.menge)}</span>` : ''}
-            ${(g.kategorien || []).map((k) => `<span class="marke">${esc(k)}</span>`).join('')}
+      <div class="stapel">
+        ${liste.length > 2 ? '<div class="stapel-hinten h2"></div>' : ''}
+        ${liste.length > 1 ? '<div class="stapel-hinten h1"></div>' : ''}
+        <article class="spielkarte ${neu ? 'neu' : 'einblenden'}" id="spielkarte" aria-label="Vorschlag: ${esc(g.name)}">
+          <div class="rahmen">
+            <div class="bild">${g.foto ? `<img src="${esc(g.foto)}" alt="">` : `<span class="emoji" aria-hidden="true">${emojiFuer(g)}</span>`}</div>
+            <div class="text">
+              <div class="kapitel">${kapitel}</div>
+              <h1>${esc(g.name)}</h1>
+              <div class="zutatenzeile">${zutatenzeile}</div>
+            </div>
           </div>
-          <ul class="zutaten">${zutatenChips(g.zutaten, vorschlag.imHaus)}</ul>
-          ${imHausText}
-          ${g.notizen ? `<p class="klein leise">${esc(g.notizen)}</p>` : ''}
-          ${g.link ? `<p class="klein"><a href="${esc(g.link)}" target="_blank" rel="noopener">Rezept öffnen ↗</a></p>` : ''}
-          <details class="warum">
-            <summary>Warum dieser Vorschlag?</summary>
-            <ul>${gruende}
-              <li><b>Punkte gesamt</b><b>${vorschlag.punkte}</b></li>
-            </ul>
-            <p class="leise">Chance unter ${liste.length} passenden Gerichten: ${Math.round(vorschlag.wahrscheinlichkeit * 100)} %</p>
-          </details>
-          <div class="aktionen">
-            <button class="knopf primaer" data-aktion="essen">Das esse ich</button>
-            <button class="knopf" data-aktion="anderer">Anderer Vorschlag</button>
-            <button class="knopf rahmen" data-aktion="nicht-heute">Nicht heute</button>
-          </div>
-        </div>
-      </article>`;
+          <div class="stempel ja" aria-hidden="true">Bon appétit</div>
+          <div class="stempel nein" aria-hidden="true">Heute nicht</div>
+        </article>
+      </div>
+      <div class="rund-knoepfe">
+        <button class="rund nein" data-aktion="karte-nicht" aria-label="Nicht heute" title="Nicht heute">${ICON.nein}</button>
+        <button class="rund anders" data-aktion="karte-anders" aria-label="Anderer Vorschlag" title="Anderer Vorschlag">${ICON.anders}</button>
+        <button class="rund ja" data-aktion="karte-essen" aria-label="Das esse ich" title="Das esse ich">${ICON.mag}</button>
+      </div>
+      <p class="rund-hinweis"><span>← nicht heute</span> · <span>anderer Vorschlag</span> · <span>das esse ich →</span></p>
+      <div class="details-vorschlag">
+        ${imHausText}
+        ${g.notizen ? `<p class="klein leise kursiv">${esc(g.notizen)}</p>` : ''}
+        ${g.link ? `<p class="klein"><a href="${esc(g.link)}" target="_blank" rel="noopener">Rezept öffnen ↗</a></p>` : ''}
+        <details class="warum">
+          <summary>Warum dieser Vorschlag?</summary>
+          <ul>${gruende}
+            <li><b>Punkte gesamt</b><b>${vorschlag.punkte}</b></li>
+          </ul>
+          <p class="leise">Chance unter ${liste.length} passenden Gerichten: ${Math.round(vorschlag.wahrscheinlichkeit * 100)} %</p>
+        </details>
+      </div>`;
+  }
+
+  /** Lässt die Karte zur Seite fliegen und führt danach die Aktion aus. */
+  function karteWeg(richtung, aktion) {
+    const karte = $('#spielkarte');
+    if (!karte || matchMedia('(prefers-reduced-motion: reduce)').matches) { aktion(); return; }
+    const ziel = {
+      rechts: 'translate(130%, -20px) rotate(18deg)',
+      links: 'translate(-130%, -20px) rotate(-18deg)',
+      oben: 'translate(0, -60px) scale(0.92)',
+    }[richtung];
+    karte.classList.remove('zieht');
+    karte.style.transform = ziel;
+    karte.style.opacity = '0';
+    ui.karteNeu = true;
+    setTimeout(aktion, 220);
+  }
+
+  // Vorschlagskarte wischen: rechts = Das esse ich, links = Nicht heute
+  function karteWischenEinrichten() {
+    const SCHWELLE = 100;
+    let zug = null;
+    const stempel = (karte, dx) => {
+      karte.querySelector('.stempel.ja').style.opacity = Math.max(0, Math.min(1, dx / 90));
+      karte.querySelector('.stempel.nein').style.opacity = Math.max(0, Math.min(1, -dx / 90));
+    };
+    document.addEventListener('pointerdown', (e) => {
+      const karte = e.target.closest('#spielkarte');
+      if (!karte || e.target.closest('a, button') || e.button > 0) return;
+      zug = { karte, x: e.clientX, y: e.clientY, dx: 0, aktiv: false, pid: e.pointerId };
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (!zug || e.pointerId !== zug.pid) return;
+      const dx = e.clientX - zug.x;
+      const dy = e.clientY - zug.y;
+      if (!zug.aktiv) {
+        if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { zug = null; return; }
+        if (Math.abs(dx) < 8) return;
+        zug.aktiv = true;
+        zug.karte.classList.add('zieht');
+        try { zug.karte.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
+      }
+      zug.dx = dx;
+      zug.karte.style.transform = `translate(${dx}px, ${dy * 0.15}px) rotate(${dx / 18 - 1}deg)`;
+      stempel(zug.karte, dx);
+    });
+    const ende = (e) => {
+      if (!zug || e.pointerId !== zug.pid) return;
+      const { karte, dx, aktiv } = zug;
+      zug = null;
+      if (!aktiv) return;
+      if (dx > SCHWELLE) { karteWeg('rechts', AKTIONEN.essen); return; }
+      if (dx < -SCHWELLE) { karteWeg('links', AKTIONEN['nicht-heute']); return; }
+      karte.classList.remove('zieht');
+      karte.style.transform = '';
+      stempel(karte, 0);
+    };
+    document.addEventListener('pointerup', ende);
+    document.addEventListener('pointercancel', ende);
   }
 
   function filterleisteHtml() {
@@ -507,7 +579,7 @@
     return `
       <header class="kopf"><div>
         <div class="datum">${z.gerichte.length} ${z.gerichte.length === 1 ? 'Gericht' : 'Gerichte'}</div>
-        <h1>Meine Gerichte</h1>
+        <h1>Meine Karte</h1>
       </div></header>
       ${beispiele ? `
         <div class="hinweis"><span class="emoji">💡</span><div>
@@ -518,7 +590,7 @@
       <div class="chips" role="group" aria-label="Kategorie">
         ${kategorien.map((k) => `<button class="chip" aria-pressed="${ui.gerichteFilter === k}" data-aktion="gerichte-filter" data-wert="${esc(k)}">${k ? esc(k) : 'Alle'}</button>`).join('')}
       </div>
-      <div id="gerichte-liste" class="liste" style="margin-top:10px">${gerichteListe()}</div>
+      <div id="gerichte-liste">${gerichteListe()}</div>
       <a class="knopf primaer schwebeknopf" href="#/gericht/neu">＋ Neues Gericht</a>`;
   }
 
@@ -543,23 +615,25 @@
         ? '<div class="leer"><span class="emoji">🔍</span><p>Kein Gericht passt zu deiner Suche.</p></div>'
         : '<div class="leer"><span class="emoji">🍳</span><h2>Noch leer hier</h2><p>Leg dein erstes Gericht an.</p></div>';
     }
-    return liste.map((g) => {
+    // Wie eine Speisekarte: Name, Zutaten kursiv, Zeit rechts
+    return '<ul class="speisekarte">' + liste.map((g) => {
       const nicht = g.zutaten.filter((id) => z.bewertungen[id] === 'nicht').length;
+      const marken = [
+        zuletzt.has(g.id) ? `<span>zuletzt ${wannText(zuletzt.get(g.id))}</span>` : '',
+        g.beispiel ? '<span class="marke">Beispiel</span>' : '',
+        nicht ? `<span class="marke warnung">${nicht}× magst du nicht</span>` : '',
+      ].join('');
       return `
-        <a class="gericht-zeile" href="#/gericht/${esc(g.id)}">
-          ${bildHtml(g)}
+        <li><a href="#/gericht/${esc(g.id)}">
+          ${g.foto ? `<div class="mini"><img src="${esc(g.foto)}" alt="" loading="lazy"></div>` : ''}
           <div class="text">
             <h3>${esc(g.name)}</h3>
-            <div class="meta">
-              ${g.zeit ? `<span>⏱ ${fmtZeit(g.zeit)}</span>` : ''}
-              ${zuletzt.has(g.id) ? `<span>zuletzt ${wannText(zuletzt.get(g.id))}</span>` : ''}
-              ${g.beispiel ? '<span class="marke">Beispiel</span>' : ''}
-              ${nicht ? `<span class="marke" style="color:var(--rot)">${nicht}× magst du nicht</span>` : ''}
-            </div>
-            <div class="meta leise">${esc(g.zutaten.slice(0, 5).map((id) => lmName(id, index)).join(', '))}${g.zutaten.length > 5 ? ' …' : ''}</div>
+            <div class="zutatenzeile">${esc(g.zutaten.map((id) => lmName(id, index)).join(', ')) || 'ohne Zutaten'}</div>
+            ${marken.trim() ? `<div class="meta">${marken}</div>` : ''}
           </div>
-        </a>`;
-    }).join('');
+          <span class="zeit">${g.zeit ? `${g.zeit}′` : ''}</span>
+        </a></li>`;
+    }).join('') + '</ul>';
   }
 
   // ---------- Ansicht: Gericht anlegen / bearbeiten ----------
@@ -955,7 +1029,7 @@
         html += `${letzteWoche ? '</ul>' : ''}<div class="woche">${titel}</div><ul class="verlauf-liste">`;
         letzteWoche = w;
       }
-      html += `<li><span class="em">${verlaufEmoji(e)}</span><div><div>${esc(e.titel)}</div><div class="wann">${esc(fmtKurz.format(datumAus(e.datum)))}${e.gerichtId && !gerichtVon(e.gerichtId) ? ' · Gericht gelöscht' : !e.gerichtId ? ' · einmalig' : ''}</div></div>
+      html += `<li><span class="em">${verlaufEmoji(e)}</span><div><div class="titel">${esc(e.titel)}</div><div class="wann">${esc(fmtKurz.format(datumAus(e.datum)))}${e.gerichtId && !gerichtVon(e.gerichtId) ? ' · Gericht gelöscht' : !e.gerichtId ? ' · einmalig' : ''}</div></div>
         <button class="knopf klein still" data-aktion="eintrag-bearbeiten" data-datum="${e.datum}">Ändern</button></li>`;
     }
     return html + '</ul>';
@@ -1175,6 +1249,9 @@
         render();
       });
     },
+    'karte-essen'() { karteWeg('rechts', AKTIONEN.essen); },
+    'karte-nicht'() { karteWeg('links', AKTIONEN['nicht-heute']); },
+    'karte-anders'() { karteWeg('oben', AKTIONEN.anderer); },
     'heute-aendern'() {
       loescheEintrag(z.heute.datum);
       render();
@@ -1468,6 +1545,7 @@
 
     ereignisseEinrichten();
     wischenEinrichten();
+    karteWischenEinrichten();
 
     // Beim allerersten Start direkt zur Einrichtung
     if (!z.einrichtung.begruesst && !location.hash) location.replace('#/einrichtung');
