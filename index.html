@@ -5,9 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Was esse ich heute?</title>
   <meta name="description" content="Abendliche Essensvorschläge aus deinen Vorlieben, Gerichten und deinem Verlauf.">
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d1f16" media="(prefers-color-scheme: dark)">
-  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff">
+  <script>
+    // Darstellung sofort setzen, bevor die Seite zeichnet (kein Aufblitzen)
+    (function () {
+      var wahl = 'hell';
+      try { wahl = localStorage.getItem('darstellung') || 'hell'; } catch (e) {}
+      var dunkel = wahl === 'dunkel' || (wahl === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.theme = dunkel ? 'dunkel' : 'hell';
+    })();
+  </script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Heute essen">

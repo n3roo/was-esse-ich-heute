@@ -46,11 +46,12 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --tab-hoehe: 64px;
   --unten: env(safe-area-inset-bottom, 0px);
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/* Dunkelmodus: app.js setzt data-theme="dunkel" (Einstellung „Darstellung“) */
+:root[data-theme="dunkel"] {
+    color-scheme: dark;
     --bg: #0d1f16;
     --flaeche: #132a1e;
     --flaeche-2: #1a3426;
@@ -66,7 +67,6 @@
     --rot: #ec8f84;
     --rot-weich: #3d1d1a;
     --karte-tief: #072015;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -86,7 +86,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 500; letter-spacing: -0.005
 h1 { font-size: 1.9rem; line-height: 1.15; color: var(--akzent); }
 h2 { font-size: 1.3rem; }
 h3 { font-size: 1.05rem; }
-@media (prefers-color-scheme: dark) { h1 { color: var(--text); } }
+[data-theme="dunkel"] h1 { color: var(--text); }
 .leise { color: var(--text-2); }
 .klein { font-size: 0.875rem; }
 .kursiv { font-family: var(--serif); font-style: italic; }
@@ -241,10 +241,8 @@ input:focus-visible { outline: none; }
 .stapel-hinten { position: absolute; border-radius: var(--radius); }
 .stapel-hinten.h1 { inset: 8px 6px -4px; background: #a9bfae; transform: rotate(3deg); }
 .stapel-hinten.h2 { inset: 16px 12px -8px; background: #e3ebe5; transform: rotate(-4deg); }
-@media (prefers-color-scheme: dark) {
-  .stapel-hinten.h1 { background: #1f4d34; }
-  .stapel-hinten.h2 { background: #173726; }
-}
+[data-theme="dunkel"] .stapel-hinten.h1 { background: #1f4d34; }
+[data-theme="dunkel"] .stapel-hinten.h2 { background: #173726; }
 .spielkarte {
   position: absolute; inset: 0; z-index: 2;
   background: var(--karte); color: var(--karte-text);
@@ -288,7 +286,7 @@ input:focus-visible { outline: none; }
 .rund.anders { width: 46px; height: 46px; border-color: var(--messing); color: var(--messing); }
 .rund.anders svg { width: 20px; height: 20px; }
 .rund.ja { background: var(--karte); border-color: var(--karte); color: var(--messing-hell); }
-@media (prefers-color-scheme: dark) { .rund.ja { border-color: var(--messing-hell); } }
+[data-theme="dunkel"] .rund.ja { border-color: var(--messing-hell); }
 .rund-hinweis { text-align: center; font-size: 0.8rem; color: var(--text-2); margin: 0 0 14px; }
 .rund-hinweis span { white-space: nowrap; }
 
@@ -379,7 +377,7 @@ input:focus-visible { outline: none; }
 .einrichtung-kopf { position: sticky; top: 0; z-index: 4; background: var(--bg); padding: 10px 16px 8px; margin: -10px -16px 0; border-bottom: 1px solid var(--linie); }
 .einrichtung-kopf .zahlen { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-2); margin: 6px 0 10px; }
 .kategorie-titel { font-family: var(--serif); font-size: 1.15rem; margin: 22px 4px 8px; color: var(--akzent); }
-@media (prefers-color-scheme: dark) { .kategorie-titel { color: var(--messing); } }
+[data-theme="dunkel"] .kategorie-titel { color: var(--messing); }
 .lm-liste { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .lm { position: relative; border-radius: 12px; overflow: hidden; }
 .lm::before, .lm::after {

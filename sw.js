@@ -3,7 +3,7 @@
  * Bei jeder Änderung an den Dateien die CACHE-Version erhöhen,
  * damit installierte Apps die neue Version laden.
  */
-const CACHE = 'was-esse-ich-heute-v3';
+const CACHE = 'was-esse-ich-heute-v4';
 const DATEIEN = [
   './',
   './index.html',

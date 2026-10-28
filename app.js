@@ -129,7 +129,7 @@
       rueckmeldungen: {},       // gerichtId → { nichtHeute }
       likes: {},                // gerichtId → ['JJJJ-MM-TT', …] (Tage, an denen es gemerkt wurde)
       katalogAus: [],           // Katalog-Gerichte, die nicht mehr vorgeschlagen werden
-      einstellungen: { katalog: true },
+      einstellungen: { katalog: true, darstellung: 'hell' }, // darstellung: 'hell' | 'dunkel' | 'auto'
       heute: neuerHeuteZustand(),
       filter: { maxZeit: 0, vegetarisch: false, imHaus: [] },
       einrichtung: { begruesst: false, abgeschlossen: false },
@@ -213,6 +213,18 @@
     const mag = alle.filter((l) => z.bewertungen[l.id] === 'mag').length;
     const nicht = alle.filter((l) => z.bewertungen[l.id] === 'nicht').length;
     return { gesamt: alle.length, bewertet, mag, nicht, prozent: Math.round((bewertet / alle.length) * 100) };
+  }
+
+  // Hell/Dunkel: gespeichert im Zustand, gespiegelt in localStorage, damit
+  // index.html die Darstellung schon vor dem ersten Zeichnen setzen kann.
+  const systemDunkel = matchMedia('(prefers-color-scheme: dark)');
+  function darstellungAnwenden() {
+    const wahl = z.einstellungen.darstellung || 'hell';
+    const dunkel = wahl === 'dunkel' || (wahl === 'auto' && systemDunkel.matches);
+    document.documentElement.dataset.theme = dunkel ? 'dunkel' : 'hell';
+    const farbe = $('meta[name="theme-color"]');
+    if (farbe) farbe.content = dunkel ? '#0d1f16' : '#ffffff';
+    try { localStorage.setItem('darstellung', wahl); } catch (e) { /* egal */ }
   }
 
   function heuteAktualisieren() {
@@ -1365,6 +1377,11 @@
         </ul>
         <p class="leise klein" style="margin:10px 4px">Alles bleibt nur auf diesem Gerät gespeichert – es gibt keinen Server und kein Konto. Exportiere ab und zu ein Backup, z. B. bevor du den Browser-Speicher leerst oder das Handy wechselst.</p>
       </section>
+      <section class="abschnitt"><h2>Darstellung</h2>
+        <div class="segment" role="group" aria-label="Darstellung">
+          ${[['hell', 'Hell'], ['dunkel', 'Dunkel'], ['auto', 'Wie System']].map(([w, t]) => `<button aria-pressed="${z.einstellungen.darstellung === w}" data-aktion="darstellung" data-wert="${w}">${t}</button>`).join('')}
+        </div>
+      </section>
       <section class="abschnitt"><h2>App</h2>
         <ul class="menue">
           ${installiert ? '<li><span style="display:block;padding:16px">✓ Als App installiert</span></li>'
@@ -1400,6 +1417,7 @@
       if (!ok) return;
       z = normalisieren(daten);
       z.einrichtung.begruesst = true;
+      darstellungAnwenden();
       await sofortSpeichern();
       render();
       meldung('Backup wurde geladen');
@@ -1611,6 +1629,12 @@
       render();
       meldung(z.katalogAus.includes(id) ? 'Wird nicht mehr vorgeschlagen' : 'Wird wieder vorgeschlagen');
     },
+    darstellung(el) {
+      z.einstellungen.darstellung = el.dataset.wert;
+      speichern();
+      darstellungAnwenden();
+      render();
+    },
     'katalog-umschalten'() {
       z.einstellungen.katalog = !z.einstellungen.katalog;
       vorschlagNeu();
@@ -1742,6 +1766,7 @@
     async 'alles-loeschen'() {
       if (!confirm('Wirklich alle Daten löschen? Gerichte, Bewertungen und Verlauf gehen verloren. Das lässt sich nicht rückgängig machen.')) return;
       z = neuerZustand();
+      darstellungAnwenden();
       await sofortSpeichern();
       location.hash = '#/einrichtung';
       render();
@@ -1873,6 +1898,8 @@
     if (!geladen) await sofortSpeichern();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
+    darstellungAnwenden();
+    systemDunkel.addEventListener('change', darstellungAnwenden);
     ereignisseEinrichten();
     wischenEinrichten();
     karteWischenEinrichten();
