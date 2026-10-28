@@ -29,6 +29,7 @@
       'Schweineschnitzel', 'Schweinefilet', 'Schweinebraten', 'Kassler',
       'Speck', 'Schinken', 'Salami', 'Bratwurst', 'Wiener Würstchen',
       'Leberkäse', 'Lammfleisch', 'Ente', 'Chorizo', 'Döner-Fleisch',
+      'Rinderbraten', 'Kalbfleisch', 'Gyrosfleisch', 'Weißwurst', 'Fleischwurst', 'Maultaschen',
     ],
     'Fisch': [
       'Lachs', 'Räucherlachs', 'Thunfisch', 'Kabeljau', 'Seelachs', 'Forelle',
@@ -45,6 +46,7 @@
       'Fenchel', 'Kohlrabi', 'Spargel', 'Radieschen', 'Rettich', 'Pastinaken',
       'Mais', 'Erbsen', 'Grüne Bohnen', 'Chilischoten', 'Avocado', 'Oliven',
       'Gewürzgurken',
+      'Pak Choi', 'Sojasprossen', 'Zuckerschoten', 'Römersalat',
     ],
     'Obst': [
       'Äpfel', 'Birnen', 'Bananen', 'Orangen', 'Zitronen', 'Limetten',
@@ -57,6 +59,7 @@
       'Joghurt', 'Quark', 'Frischkäse', 'Mozzarella', 'Feta', 'Gouda',
       'Emmentaler', 'Bergkäse', 'Parmesan', 'Camembert', 'Ziegenkäse',
       'Halloumi', 'Ricotta', 'Mascarpone', 'Eier',
+      'Gorgonzola', 'Raclettekäse',
     ],
     'Getreide und Beilagen': [
       'Kartoffeln', 'Nudeln', 'Spaghetti', 'Penne', 'Lasagneplatten',
@@ -65,17 +68,18 @@
       'Haferflocken', 'Brot', 'Brötchen', 'Toastbrot', 'Fladenbrot', 'Tortillas',
       'Semmelknödel', 'Kartoffelknödel', 'Pommes frites', 'Kroketten',
       'Blätterteig', 'Pizzateig', 'Mehl',
+      'Bandnudeln', 'Schupfnudeln', 'Mie-Nudeln', 'Cannelloni', 'Burgerbrötchen', 'Milchreis',
     ],
     'Hülsenfrüchte': [
       'Linsen', 'Rote Linsen', 'Kichererbsen', 'Kidneybohnen', 'Weiße Bohnen',
       'Schwarze Bohnen', 'Edamame', 'Tofu', 'Räuchertofu', 'Tempeh',
-      'Sojaschnetzel',
+      'Sojaschnetzel', 'Schälerbsen',
     ],
     'Gewürze und Kräuter': [
       'Petersilie', 'Schnittlauch', 'Basilikum', 'Dill', 'Koriander', 'Minze',
       'Rosmarin', 'Thymian', 'Oregano', 'Majoran', 'Lorbeer', 'Pfeffer',
       'Paprikapulver', 'Currypulver', 'Kreuzkümmel', 'Kurkuma', 'Zimt',
-      'Muskat', 'Ingwer', 'Chiliflocken', 'Kümmel', 'Knoblauchpulver',
+      'Muskat', 'Ingwer', 'Chiliflocken', 'Kümmel', 'Knoblauchpulver', 'Salbei',
     ],
     'Soßen und Sonstiges': [
       'Passierte Tomaten', 'Tomatenmark', 'Pesto', 'Senf', 'Ketchup',
@@ -83,6 +87,8 @@
       'Sauce Hollandaise', 'Ajvar', 'Hummus', 'Olivenöl', 'Essig', 'Honig',
       'Walnüsse', 'Mandeln', 'Haselnüsse', 'Erdnüsse', 'Pinienkerne', 'Sesam',
       'Sonnenblumenkerne',
+      'Rotwein', 'Weißwein', 'Fischsoße', 'Erdnussbutter', 'Currypaste', 'Tahini', 'Zucker',
+      'Fleischbrühe', 'Kapern', 'Apfelmus',
     ],
   };
 

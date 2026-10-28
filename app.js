@@ -14,6 +14,7 @@
 
   const { KATEGORIEN, LEBENSMITTEL, BEISPIEL_GERICHTE, slug } = window.Lebensmittel;
   const V = window.Vorschlag;
+  const KATALOG = window.Katalog.GERICHTE_KATALOG;
 
   const VERSION = 1;
   const SPEICHER_SCHLUESSEL = 'was-esse-ich-heute';
@@ -57,6 +58,7 @@
   const ICON = {
     nein: '<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>',
     egal: '<svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>',
+    haken: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
     anders: '<svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5M19 4v4h-4"/></svg>',
     mag: '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
   };
@@ -125,6 +127,9 @@
       gerichte: BEISPIEL_GERICHTE.map((g) => ({ ...leeresGericht(), ...g, id: neueId(), beispiel: true })),
       verlauf: [],              // { id, datum, gerichtId | null, titel }
       rueckmeldungen: {},       // gerichtId → { nichtHeute }
+      likes: {},                // gerichtId → ['JJJJ-MM-TT', …] (Tage, an denen es gemerkt wurde)
+      katalogAus: [],           // Katalog-Gerichte, die nicht mehr vorgeschlagen werden
+      einstellungen: { katalog: true },
       heute: neuerHeuteZustand(),
       filter: { maxZeit: 0, vegetarisch: false, imHaus: [] },
       einrichtung: { begruesst: false, abgeschlossen: false },
@@ -141,6 +146,9 @@
     n.gerichte = Array.isArray(d.gerichte) ? d.gerichte.map((g) => ({ ...leeresGericht(), ...g, id: g.id || neueId() })) : [];
     n.verlauf = Array.isArray(d.verlauf) ? d.verlauf.filter((e) => e && e.datum) : [];
     n.rueckmeldungen = d.rueckmeldungen || {};
+    n.likes = d.likes && typeof d.likes === 'object' ? d.likes : {};
+    n.katalogAus = Array.isArray(d.katalogAus) ? d.katalogAus : [];
+    n.einstellungen = { ...basis.einstellungen, ...(d.einstellungen || {}) };
     n.heute = { ...neuerHeuteZustand(), ...(d.heute || {}) };
     n.filter = { ...basis.filter, ...(d.filter || {}) };
     n.einrichtung = { ...basis.einrichtung, ...(d.einrichtung || {}) };
@@ -163,6 +171,9 @@
     editor: null,
     imHausSuche: '',
     karteNeu: false, // nächste Karte mit „Nachrutschen“-Animation zeigen
+    likesModus: 'heute',
+    runde: null,     // laufende Entscheidungsrunde (siehe rundeStarten)
+    gerichteQuelle: 'meine', // 'meine' | 'katalog'
     installieren: null,
   };
 
@@ -176,7 +187,22 @@
     return (index.get(id) || { name: ui.formularNeu[id] || id }).name;
   }
   function gerichtVon(id) {
-    return z.gerichte.find((g) => g.id === id);
+    return z.gerichte.find((g) => g.id === id) || KATALOG.find((g) => g.id === id);
+  }
+  /** Alle Gerichte, die vorgeschlagen werden dürfen: eigene plus (optional) Katalog. */
+  function vorschlagsGerichte() {
+    if (!z.einstellungen.katalog) return z.gerichte;
+    return [...z.gerichte, ...KATALOG.filter((g) => !z.katalogAus.includes(g.id))];
+  }
+  function heuteGeliked() {
+    const heute = isoHeute();
+    return Object.keys(z.likes).filter((id) => z.likes[id].includes(heute));
+  }
+  function liken(id) {
+    const heute = isoHeute();
+    const tage = z.likes[id] || [];
+    if (!tage.includes(heute)) z.likes[id] = [...tage, heute];
+    speichern();
   }
   function eintragAm(datum) {
     return z.verlauf.find((e) => e.datum === datum);
@@ -280,6 +306,8 @@
       heute: ansichtHeute,
       gerichte: ansichtGerichte,
       gericht: () => ansichtFormular(param),
+      likes: ansichtLikes,
+      runde: ansichtRunde,
       verlauf: ansichtVerlauf,
       einstellungen: ansichtEinstellungen,
       einrichtung: ansichtEinrichtung,
@@ -288,7 +316,7 @@
     const main = $('#ansicht');
     main.innerHTML = ansicht();
 
-    const tab = { heute: 'heute', gerichte: 'gerichte', gericht: 'gerichte', verlauf: 'verlauf', einstellungen: 'einstellungen', einrichtung: 'einstellungen' }[name] || 'heute';
+    const tab = { heute: 'heute', likes: 'likes', runde: 'likes', gerichte: 'gerichte', gericht: 'gerichte', verlauf: 'verlauf', einstellungen: 'einstellungen', einrichtung: 'einstellungen' }[name] || 'heute';
     document.querySelectorAll('.tabs a').forEach((a) => {
       if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
@@ -299,14 +327,15 @@
 
   function kandidaten() {
     return V.bewerteGerichte({
-      gerichte: z.gerichte,
+      gerichte: vorschlagsGerichte(),
       lebensmittel: alleLebensmittel(),
       bewertungen: z.bewertungen,
       verlauf: z.verlauf,
       rueckmeldungen: z.rueckmeldungen,
+      likes: z.likes,
       heute: z.heute.datum,
       filter: z.filter,
-      ausgeschlossen: z.heute.ausgeschlossen,
+      ausgeschlossen: [...z.heute.ausgeschlossen, ...heuteGeliked()],
     });
   }
 
@@ -340,10 +369,48 @@
 
   const fmtWochentag = new Intl.DateTimeFormat('de-DE', { weekday: 'long' });
 
+  /**
+   * Eine Vorschlagskarte auf dem Stapel. rechts/links nennen die Aktion
+   * (Schlüssel in AKTIONEN), die beim Wischen in die Richtung ausgelöst wird.
+   */
+  function karteHtml(g, { kapitel, rechts, links, stempelJa, stempelNein, tiefe = 1 }) {
+    const index = lmIndex();
+    const zutatenzeile = g.zutaten.slice(0, 6).map((id) => {
+      const w = z.bewertungen[id];
+      return `<span class="${w === 'mag' ? 'mag' : w === 'nicht' ? 'nicht' : ''}">${esc(lmName(id, index))}${w === 'mag' ? ' ♥' : ''}</span>`;
+    }).join(' · ') + (g.zutaten.length > 6 ? ' …' : '');
+    const neu = ui.karteNeu;
+    ui.karteNeu = false;
+    return `
+      <div class="stapel">
+        ${tiefe > 2 ? '<div class="stapel-hinten h2"></div>' : ''}
+        ${tiefe > 1 ? '<div class="stapel-hinten h1"></div>' : ''}
+        <article class="spielkarte ${neu ? 'neu' : 'einblenden'}" id="spielkarte" data-rechts="${rechts}" data-links="${links}" aria-label="${esc(g.name)}">
+          <div class="rahmen">
+            <div class="bild">${g.foto ? `<img src="${esc(g.foto)}" alt="">` : `<span class="emoji" aria-hidden="true">${emojiFuer(g)}</span>`}</div>
+            <div class="text">
+              <div class="kapitel">${kapitel}</div>
+              <h1>${esc(g.name)}</h1>
+              <div class="zutatenzeile">${zutatenzeile}</div>
+            </div>
+          </div>
+          <div class="stempel ja" aria-hidden="true">${stempelJa}</div>
+          <div class="stempel nein" aria-hidden="true">${stempelNein}</div>
+        </article>
+      </div>`;
+  }
+
+  function rezeptLink(g) {
+    if (g.link) return `<a href="${esc(g.link)}" target="_blank" rel="noopener">Rezept öffnen ↗</a>`;
+    if (g.katalog) return `<a href="https://www.chefkoch.de/rs/s0/${encodeURIComponent(g.name)}/Rezepte.html" target="_blank" rel="noopener">Rezepte dazu suchen ↗</a>`;
+    return '';
+  }
+
   function ansichtHeute() {
     heuteAktualisieren();
     const stand = einrichtungsStand();
     const eintrag = eintragAm(z.heute.datum);
+    const anzahlLikes = heuteGeliked().length;
     let html = `
       <header class="kopf mitte">
         <div class="kapitel">${esc(fmtWochentag.format(new Date()))} · Abendkarte</div>
@@ -367,33 +434,46 @@
           <h1>${esc(eintrag.titel)}</h1>
           <p class="kursiv">Bon appétit</p>
           <div class="knopfreihe">
-            ${g && g.link ? `<a class="knopf rahmen" href="${esc(g.link)}" target="_blank" rel="noopener">Rezept öffnen ↗</a>` : ''}
+            ${g && (g.link || g.katalog) ? rezeptLink(g).replace('<a ', '<a class="knopf rahmen" ') : ''}
             <button class="knopf still" data-aktion="heute-aendern">Doch etwas anderes</button>
           </div>
         </div></section>`;
     }
 
     html += filterleisteHtml();
+    if (anzahlLikes) {
+      html += `<a class="likes-zaehler" href="#/likes">♥ ${anzahlLikes} heute gemerkt · jetzt entscheiden ›</a>`;
+    }
 
-    if (z.gerichte.length === 0) {
+    const gerichte = vorschlagsGerichte();
+    if (gerichte.length === 0) {
       return html + `
         <div class="leer karte"><span class="emoji">🍳</span>
           <h2>Noch keine Gerichte</h2>
-          <p>Trag ein paar Gerichte ein, die du gerne kochst – dann schlage ich dir jeden Abend etwas vor.</p>
+          <p>Trag ein paar Gerichte ein, die du gerne kochst, oder schalte unter „Mehr“ den Katalog ein.</p>
           <a class="knopf primaer" href="#/gericht/neu">Erstes Gericht eintragen</a>
         </div>`;
     }
 
-    if (z.gerichte.length < MIN_GERICHTE) {
+    if (gerichte.length < MIN_GERICHTE) {
       html += `
         <div class="hinweis"><span class="emoji">📝</span><div>
-          <p>Du hast erst ${z.gerichte.length} ${z.gerichte.length === 1 ? 'Gericht' : 'Gerichte'}. Mit ein paar mehr wird es abwechslungsreicher.</p>
+          <p>Du hast erst ${gerichte.length} ${gerichte.length === 1 ? 'Gericht' : 'Gerichte'}. Mit ein paar mehr wird es abwechslungsreicher.</p>
           <a class="knopf klein rahmen" href="#/gericht/neu">Gericht eintragen</a>
         </div></div>`;
     }
 
     const { liste, eintrag: vorschlag } = aktuellerVorschlag();
     if (!vorschlag) {
+      if (anzahlLikes && !filterAktiv()) {
+        return html + `
+          <div class="leer karte"><span class="emoji">♥</span>
+            <h2>Das war die ganze Karte</h2>
+            <p>Du hast heute ${anzahlLikes} ${anzahlLikes === 1 ? 'Gericht' : 'Gerichte'} gemerkt. Zeit zu entscheiden.</p>
+            <a class="knopf primaer" href="#/likes">Zu deinen Likes</a>
+            ${z.heute.ausgeschlossen.length ? '<p><button class="knopf still" data-aktion="ablehnungen-weg">Abgelehnte nochmal zeigen</button></p>' : ''}
+          </div>`;
+      }
       const nurAusgeschlossen = !filterAktiv() && z.heute.ausgeschlossen.length;
       return html + `
         <div class="leer karte"><span class="emoji">🤷</span>
@@ -407,49 +487,31 @@
 
     const g = vorschlag.gericht;
     const index = lmIndex();
-    // „Nr. 07“ wie auf einer Speisekarte: Position in der alphabetischen Gerichteliste
-    const nr = [...z.gerichte].sort((a, b) => vergleich(a.name, b.name)).findIndex((x) => x.id === g.id) + 1;
-    const kapitel = [`Nr. ${String(nr).padStart(2, '0')}`, g.zeit ? fmtZeit(g.zeit) : '', g.menge].filter(Boolean).map(esc).join(' · ');
-    const zutatenzeile = g.zutaten.slice(0, 6).map((id) => {
-      const w = z.bewertungen[id];
-      return `<span class="${w === 'mag' ? 'mag' : w === 'nicht' ? 'nicht' : ''}">${esc(lmName(id, index))}${w === 'mag' ? ' ♥' : ''}</span>`;
-    }).join(' · ') + (g.zutaten.length > 6 ? ' …' : '');
+    // „Nr. 07“ wie auf einer Speisekarte: Position in der alphabetischen Gesamtliste
+    const nr = [...gerichte].sort((a, b) => vergleich(a.name, b.name)).findIndex((x) => x.id === g.id) + 1;
+    const kapitel = [`Nr. ${String(nr).padStart(2, '0')}`, g.zeit ? fmtZeit(g.zeit) : '', g.katalog ? 'Katalog' : 'Deine Karte']
+      .filter(Boolean).map(esc).join(' · ');
     const gruende = vorschlag.gruende.length
       ? vorschlag.gruende.map((r) => `<li><span>${esc(r.text)}</span><span class="${r.punkte > 0 ? 'plus' : 'minus'}">${r.punkte > 0 ? '+' : '−'}${Math.abs(r.punkte)}</span></li>`).join('')
       : '<li><span>Keine Besonderheiten – neutrale Wahl</span><span>0</span></li>';
     const imHausText = vorschlag.imHaus
       ? `<p class="klein leise">${vorschlag.imHaus.fehlend.length ? `Fehlt noch: ${esc(vorschlag.imHaus.fehlend.map((id) => lmName(id, index)).join(', '))}` : 'Alles im Haus ✓'}</p>`
       : '';
-    const neu = ui.karteNeu;
-    ui.karteNeu = false;
 
-    return html + `
-      <div class="stapel">
-        ${liste.length > 2 ? '<div class="stapel-hinten h2"></div>' : ''}
-        ${liste.length > 1 ? '<div class="stapel-hinten h1"></div>' : ''}
-        <article class="spielkarte ${neu ? 'neu' : 'einblenden'}" id="spielkarte" aria-label="Vorschlag: ${esc(g.name)}">
-          <div class="rahmen">
-            <div class="bild">${g.foto ? `<img src="${esc(g.foto)}" alt="">` : `<span class="emoji" aria-hidden="true">${emojiFuer(g)}</span>`}</div>
-            <div class="text">
-              <div class="kapitel">${kapitel}</div>
-              <h1>${esc(g.name)}</h1>
-              <div class="zutatenzeile">${zutatenzeile}</div>
-            </div>
-          </div>
-          <div class="stempel ja" aria-hidden="true">Bon appétit</div>
-          <div class="stempel nein" aria-hidden="true">Heute nicht</div>
-        </article>
-      </div>
+    return html + karteHtml(g, {
+      kapitel, rechts: 'like', links: 'nicht-heute', stempelJa: '♥ Gemerkt', stempelNein: 'Heute nicht', tiefe: liste.length,
+    }) + `
       <div class="rund-knoepfe">
         <button class="rund nein" data-aktion="karte-nicht" aria-label="Nicht heute" title="Nicht heute">${ICON.nein}</button>
-        <button class="rund anders" data-aktion="karte-anders" aria-label="Anderer Vorschlag" title="Anderer Vorschlag">${ICON.anders}</button>
-        <button class="rund ja" data-aktion="karte-essen" aria-label="Das esse ich" title="Das esse ich">${ICON.mag}</button>
+        <button class="rund anders" data-aktion="karte-anders" aria-label="Überspringen" title="Überspringen">${ICON.anders}</button>
+        <button class="rund ja" data-aktion="karte-like" aria-label="Merken" title="Merken">${ICON.mag}</button>
       </div>
-      <p class="rund-hinweis"><span>← nicht heute</span> · <span>anderer Vorschlag</span> · <span>das esse ich →</span></p>
+      <p class="rund-hinweis"><span>← nicht heute</span> · <span>überspringen</span> · <span>merken →</span></p>
+      <p class="text-knopf"><button class="knopf klein rahmen" data-aktion="karte-essen">✓ Direkt nehmen: Das esse ich</button></p>
       <div class="details-vorschlag">
         ${imHausText}
         ${g.notizen ? `<p class="klein leise kursiv">${esc(g.notizen)}</p>` : ''}
-        ${g.link ? `<p class="klein"><a href="${esc(g.link)}" target="_blank" rel="noopener">Rezept öffnen ↗</a></p>` : ''}
+        ${rezeptLink(g) ? `<p class="klein">${rezeptLink(g)}</p>` : ''}
         <details class="warum">
           <summary>Warum dieser Vorschlag?</summary>
           <ul>${gruende}
@@ -458,6 +520,133 @@
           <p class="leise">Chance unter ${liste.length} passenden Gerichten: ${Math.round(vorschlag.wahrscheinlichkeit * 100)} %</p>
         </details>
       </div>`;
+  }
+
+  // ---------- Ansicht: Likes ----------
+
+  const LIKE_MODI = [['heute', 'Heute'], ['kuerzlich', 'Kürzlich'], ['alle', 'Alle']];
+  const KUERZLICH_TAGE = 14;
+
+  /** Gemerkte Gerichte je Zeitraum, das zuletzt gemerkte zuerst. */
+  function likeListe(modus) {
+    const heute = isoHeute();
+    return Object.entries(z.likes)
+      .map(([id, tage]) => ({ gericht: gerichtVon(id), tage: [...tage].sort() }))
+      .filter((e) => e.gericht && e.tage.length)
+      .filter((e) => {
+        if (modus === 'heute') return e.tage.includes(heute);
+        if (modus === 'kuerzlich') return e.tage.some((t) => { const d = V.tageZwischen(t, heute); return d >= 0 && d < KUERZLICH_TAGE; });
+        return true;
+      })
+      .map((e) => ({ ...e, zuletzt: e.tage[e.tage.length - 1] }))
+      .sort((a, b) => (a.zuletzt < b.zuletzt ? 1 : a.zuletzt > b.zuletzt ? -1 : b.tage.length - a.tage.length));
+  }
+
+  function ansichtLikes() {
+    const modus = ui.likesModus;
+    const liste = likeListe(modus);
+    const titel = { heute: 'heute', kuerzlich: `in den letzten ${KUERZLICH_TAGE} Tagen`, alle: 'insgesamt' }[modus];
+    let inhalt;
+    if (!liste.length) {
+      inhalt = `
+        <div class="leer"><span class="emoji">♡</span>
+          <h2>${modus === 'heute' ? 'Heute noch nichts gemerkt' : 'Noch keine Likes'}</h2>
+          <p>Wische auf „Heute“ eine Karte nach rechts, um sie dir zu merken. Du kannst so viele merken, wie du willst.</p>
+          <a class="knopf primaer" href="#/">Zur Abendkarte</a>
+        </div>`;
+    } else {
+      inhalt = `
+        ${liste.length > 1 ? `<button class="knopf primaer breit" data-aktion="runde-start">Durchswipen und entscheiden (${liste.length})</button>` : ''}
+        <ul class="speisekarte likes-liste">${liste.map((e) => `
+          <li><div class="zeile">
+            <a class="text" href="#/gericht/${esc(e.gericht.id)}">
+              <h3>${esc(e.gericht.name)}</h3>
+              <div class="meta"><span>♥ ${e.tage.length}×</span><span>zuletzt ${wannText(e.zuletzt)}</span>${e.gericht.zeit ? `<span>${e.gericht.zeit}′</span>` : ''}</div>
+            </a>
+            <button class="knopf klein primaer" data-aktion="like-essen" data-id="${esc(e.gericht.id)}">Essen</button>
+            <button class="rund klein-rund" data-aktion="like-weg" data-id="${esc(e.gericht.id)}" aria-label="${esc(e.gericht.name)} entfernen" title="Entfernen">${ICON.nein}</button>
+          </div></li>`).join('')}
+        </ul>`;
+    }
+    return `
+      <header class="kopf mitte">
+        <div class="kapitel">Deine Auswahl</div>
+        <h1>Likes</h1>
+      </header>
+      <div class="segment" role="group" aria-label="Zeitraum">
+        ${LIKE_MODI.map(([m, t]) => `<button aria-pressed="${modus === m}" data-aktion="likes-modus" data-wert="${m}">${t} (${likeListe(m).length})</button>`).join('')}
+      </div>
+      ${liste.length ? `<p class="leise klein" style="text-align:center;margin-top:-4px">${liste.length} ${liste.length === 1 ? 'Gericht' : 'Gerichte'} gemerkt ${titel}</p>` : ''}
+      ${inhalt}`;
+  }
+
+  // ---------- Ansicht: Entscheidungsrunde ----------
+  // Durch die gemerkten Gerichte wischen: rechts bleibt im Rennen, links fliegt raus.
+  // Nach jeder Runde geht es mit den übrigen weiter, bis eins übrig ist.
+
+  function rundeStarten(modus) {
+    const ids = likeListe(modus).map((e) => e.gericht.id);
+    ui.runde = { modus, alle: ids, stapel: [...ids], behalten: [], nr: 1, groesse: ids.length, gewinner: null };
+    ui.karteNeu = true;
+  }
+
+  function rundeWeiter(behalten) {
+    const r = ui.runde;
+    const id = r.stapel.shift();
+    if (behalten) r.behalten.push(id);
+    if (!r.stapel.length) {
+      if (r.behalten.length === 1) {
+        r.gewinner = r.behalten[0];
+      } else if (r.behalten.length === 0) {
+        r.stapel = [...r.alle]; r.nr = 1; r.groesse = r.stapel.length;
+        meldung('Alle raus – wir fangen nochmal von vorn an.');
+      } else {
+        const gleich = r.behalten.length === r.groesse;
+        r.stapel = r.behalten; r.behalten = []; r.nr++; r.groesse = r.stapel.length;
+        meldung(gleich ? `Alle behalten – sei diesmal etwas strenger 😉` : `Runde ${r.nr}: noch ${r.stapel.length} im Rennen`);
+      }
+    }
+    render();
+  }
+
+  function ansichtRunde() {
+    const r = ui.runde;
+    if (!r || !r.alle.length) { location.replace('#/likes'); return ansichtLikes(); }
+    if (r.gewinner) {
+      const g = gerichtVon(r.gewinner);
+      return `
+        <header class="kopf mitte"><div class="kapitel">Entschieden</div><h1>Deine Wahl</h1></header>
+        <section class="eingetragen einblenden"><div class="rahmen">
+          <div class="emoji">${emojiFuer(g)}</div>
+          <div class="kapitel">Heute Abend</div>
+          <h1>${esc(g.name)}</h1>
+          <p class="kursiv">${g.zeit ? fmtZeit(g.zeit) : 'Bon appétit'}</p>
+          <div class="knopfreihe">
+            <button class="knopf primaer" style="background:var(--messing-hell);color:var(--karte-tief)" data-aktion="runde-essen">Das esse ich</button>
+            <button class="knopf still" data-aktion="runde-start" data-modus="${r.modus}">Nochmal</button>
+          </div>
+        </div></section>
+        <p style="text-align:center"><a href="#/likes">‹ Zurück zu den Likes</a></p>`;
+    }
+    const g = gerichtVon(r.stapel[0]);
+    const position = r.groesse - r.stapel.length + 1;
+    return `
+      <header class="kopf mitte">
+        <div class="kapitel">Runde ${r.nr} · ${position} von ${r.groesse}</div>
+        <h1>Was darf’s sein?</h1>
+      </header>
+      ${karteHtml(g, {
+        kapitel: [g.zeit ? fmtZeit(g.zeit) : '', `♥ ${(z.likes[g.id] || []).length}×`].filter(Boolean).join(' · '),
+        rechts: 'runde-ja', links: 'runde-nein', stempelJa: 'Bleibt', stempelNein: 'Raus', tiefe: r.stapel.length,
+      })}
+      <div class="rund-knoepfe">
+        <button class="rund nein" data-aktion="runde-nein-knopf" aria-label="Raus" title="Raus">${ICON.nein}</button>
+        <button class="rund anders" data-aktion="runde-essen" aria-label="Das esse ich" title="Das esse ich">${ICON.haken}</button>
+        <button class="rund ja" data-aktion="runde-ja-knopf" aria-label="Bleibt im Rennen" title="Bleibt im Rennen">${ICON.mag}</button>
+      </div>
+      <p class="rund-hinweis"><span>← raus</span> · <span>✓ sofort nehmen</span> · <span>bleibt →</span></p>
+      <p class="leise klein" style="text-align:center">${r.behalten.length ? `${r.behalten.length} im Rennen` : ''}</p>
+      <p style="text-align:center"><a href="#/likes">Abbrechen</a></p>`;
   }
 
   /** Lässt die Karte zur Seite fliegen und führt danach die Aktion aus. */
@@ -476,7 +665,7 @@
     setTimeout(aktion, 220);
   }
 
-  // Vorschlagskarte wischen: rechts = Das esse ich, links = Nicht heute
+  // Karte wischen: Die Karte sagt selbst (data-rechts / data-links), was passiert.
   function karteWischenEinrichten() {
     const SCHWELLE = 100;
     let zug = null;
@@ -509,8 +698,8 @@
       const { karte, dx, aktiv } = zug;
       zug = null;
       if (!aktiv) return;
-      if (dx > SCHWELLE) { karteWeg('rechts', AKTIONEN.essen); return; }
-      if (dx < -SCHWELLE) { karteWeg('links', AKTIONEN['nicht-heute']); return; }
+      if (dx > SCHWELLE) { karteWeg('rechts', AKTIONEN[karte.dataset.rechts]); return; }
+      if (dx < -SCHWELLE) { karteWeg('links', AKTIONEN[karte.dataset.links]); return; }
       karte.classList.remove('zieht');
       karte.style.transform = '';
       stempel(karte, 0);
@@ -560,7 +749,7 @@
     } else {
       // Ohne Suche: Zutaten aus meinen Gerichten, die häufigsten zuerst
       const zaehler = new Map();
-      z.gerichte.forEach((g) => g.zutaten.forEach((id) => zaehler.set(id, (zaehler.get(id) || 0) + 1)));
+      vorschlagsGerichte().forEach((g) => g.zutaten.forEach((id) => zaehler.set(id, (zaehler.get(id) || 0) + 1)));
       ids = [...zaehler.keys()].sort((a, b) => zaehler.get(b) - zaehler.get(a) || vergleich(lmName(a, index), lmName(b, index)));
     }
     const knopf = (id) => `<button class="chip" aria-pressed="${gewaehlt.has(id)}" data-aktion="im-haus-umschalten" data-id="${esc(id)}">${esc(lmName(id, index))}</button>`;
@@ -574,13 +763,22 @@
   // ---------- Ansicht: Gerichte ----------
 
   function ansichtGerichte() {
-    const beispiele = z.gerichte.filter((g) => g.beispiel).length;
+    const katalog = ui.gerichteQuelle === 'katalog';
+    const beispiele = katalog ? 0 : z.gerichte.filter((g) => g.beispiel).length;
     const kategorien = ['', ...GERICHT_KATEGORIEN];
+    const anzahl = katalog ? KATALOG.length : z.gerichte.length;
     return `
       <header class="kopf"><div>
-        <div class="datum">${z.gerichte.length} ${z.gerichte.length === 1 ? 'Gericht' : 'Gerichte'}</div>
-        <h1>Meine Karte</h1>
+        <div class="datum">${anzahl} ${anzahl === 1 ? 'Gericht' : 'Gerichte'}</div>
+        <h1>${katalog ? 'Katalog' : 'Meine Karte'}</h1>
       </div></header>
+      <div class="segment" role="group" aria-label="Quelle">
+        <button aria-pressed="${!katalog}" data-aktion="gerichte-quelle" data-wert="meine">Meine (${z.gerichte.length})</button>
+        <button aria-pressed="${katalog}" data-aktion="gerichte-quelle" data-wert="katalog">Katalog (${KATALOG.length})</button>
+      </div>
+      ${katalog ? `<p class="leise klein" style="margin-top:-6px">${z.einstellungen.katalog
+        ? 'Diese Gerichte kommen zusätzlich zu deinen eigenen in die Vorschläge. Ausblenden oder als eigenes übernehmen kannst du sie in der Detailansicht.'
+        : 'Der Katalog ist unter „Mehr“ ausgeschaltet und wird nicht vorgeschlagen.'}</p>` : ''}
       ${beispiele ? `
         <div class="hinweis"><span class="emoji">💡</span><div>
           <p>${beispiele} Beispielgerichte zeigen dir, wie die App funktioniert. Wenn du deine eigenen eingetragen hast, kannst du sie entfernen.</p>
@@ -600,7 +798,8 @@
     const zuletzt = new Map();
     for (const e of z.verlauf) if (e.gerichtId && (!zuletzt.has(e.gerichtId) || e.datum > zuletzt.get(e.gerichtId))) zuletzt.set(e.gerichtId, e.datum);
 
-    const liste = z.gerichte
+    const quelle = ui.gerichteQuelle === 'katalog' ? KATALOG : z.gerichte;
+    const liste = quelle
       .filter((g) => {
         if (ui.gerichteFilter === 'vegetarisch') {
           if (!(g.kategorien.includes('vegetarisch') || V.istVegetarisch(g, index))) return false;
@@ -611,7 +810,7 @@
       .sort((a, b) => vergleich(a.name, b.name));
 
     if (!liste.length) {
-      return z.gerichte.length
+      return quelle.length
         ? '<div class="leer"><span class="emoji">🔍</span><p>Kein Gericht passt zu deiner Suche.</p></div>'
         : '<div class="leer"><span class="emoji">🍳</span><h2>Noch leer hier</h2><p>Leg dein erstes Gericht an.</p></div>';
     }
@@ -621,6 +820,8 @@
       const marken = [
         zuletzt.has(g.id) ? `<span>zuletzt ${wannText(zuletzt.get(g.id))}</span>` : '',
         g.beispiel ? '<span class="marke">Beispiel</span>' : '',
+        (z.likes[g.id] || []).length ? `<span>♥ ${z.likes[g.id].length}×</span>` : '',
+        g.katalog && z.katalogAus.includes(g.id) ? '<span class="marke">ausgeblendet</span>' : '',
         nicht ? `<span class="marke warnung">${nicht}× magst du nicht</span>` : '',
       ].join('');
       return `
@@ -638,7 +839,35 @@
 
   // ---------- Ansicht: Gericht anlegen / bearbeiten ----------
 
+  function ansichtKatalogGericht(id) {
+    const g = KATALOG.find((x) => x.id === id);
+    if (!g) return '<div class="leer"><span class="emoji">🤔</span><h2>Gericht nicht gefunden</h2><p><a href="#/gerichte">Zurück zur Liste</a></p></div>';
+    const aus = z.katalogAus.includes(g.id);
+    const gemerkt = (z.likes[g.id] || []).includes(isoHeute());
+    return `
+      <a class="zurueck" href="#/gerichte">‹ Katalog</a>
+      <header class="kopf"><div>
+        <div class="datum">Aus dem Katalog${g.zeit ? ' · ' + fmtZeit(g.zeit) : ''}</div>
+        <h1>${esc(g.name)}</h1>
+      </div></header>
+      <section class="karte">
+        <div class="feld-titel">Zutaten</div>
+        <ul class="zutaten">${zutatenChips(g.zutaten)}</ul>
+        ${g.kategorien.length ? `<p class="meta" style="display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 0">${g.kategorien.map((k) => `<span class="marke">${esc(k)}</span>`).join('')}</p>` : ''}
+        <p class="klein">${rezeptLink(g)}</p>
+        <div class="knopfreihe">
+          <button class="knopf ${gemerkt ? 'rahmen' : 'primaer'}" data-aktion="katalog-like" data-id="${esc(g.id)}">${gemerkt ? '♥ Heute gemerkt' : '♡ Merken'}</button>
+          <button class="knopf rahmen" data-aktion="gericht-heute" data-id="${esc(g.id)}">Heute essen</button>
+        </div>
+        <div class="knopfreihe" style="margin-top:10px">
+          <button class="knopf" data-aktion="katalog-kopie" data-id="${esc(g.id)}">Als eigenes übernehmen</button>
+          <button class="knopf still" data-aktion="katalog-aus" data-id="${esc(g.id)}">${aus ? 'Wieder vorschlagen' : 'Nicht vorschlagen'}</button>
+        </div>
+      </section>`;
+  }
+
   function ansichtFormular(param) {
+    if (param && param.startsWith('k-')) return ansichtKatalogGericht(param);
     const neu = param === 'neu';
     if (!ui.formular || ui.formular.id !== (neu ? '' : param)) {
       const vorhanden = neu ? null : gerichtVon(param);
@@ -1090,7 +1319,7 @@
   function editorHtml() {
     const ed = ui.editor;
     const q = such(ed.suche);
-    const gerichte = [...z.gerichte].sort((a, b) => vergleich(a.name, b.name)).filter((g) => !q || such(g.name).includes(q));
+    const gerichte = [...z.gerichte, ...KATALOG].sort((a, b) => vergleich(a.name, b.name)).filter((g) => !q || such(g.name).includes(q));
     return `
       <div class="blatt-kopf"><h2 id="blatt-titel">${ed.vorhanden ? 'Eintrag ändern' : 'Eintrag nachtragen'}</h2></div>
       <label class="feld"><span>Tag</span><input type="date" value="${ed.datum}" max="${isoHeute()}" data-eingabe="editor-datum"></label>
@@ -1123,6 +1352,7 @@
         <ul class="menue">
           <li><a href="#/einrichtung"><span>Lebensmittel bewerten</span><small>${s.bewertet}/${s.gesamt} · ${s.mag} ♥ · ${s.nicht} ✕ ›</small></a></li>
           <li><button data-aktion="eigenes-lm"><span>Eigenes Lebensmittel hinzufügen</span><small>›</small></button></li>
+          <li><button data-aktion="katalog-umschalten" aria-pressed="${z.einstellungen.katalog}"><span>Katalog-Gerichte vorschlagen<br><small>${KATALOG.length} Gerichte, ausgeblendet: ${z.katalogAus.length}</small></span><small>${z.einstellungen.katalog ? 'An' : 'Aus'}</small></button></li>
         </ul>
       </section>
       <section class="abschnitt"><h2>Daten &amp; Backup</h2>
@@ -1249,7 +1479,22 @@
         render();
       });
     },
-    'karte-essen'() { karteWeg('rechts', AKTIONEN.essen); },
+    like() {
+      const id = z.heute.vorschlagId;
+      if (!id) return;
+      const vorher = z.likes[id] ? [...z.likes[id]] : null;
+      liken(id);
+      z.heute.vorschlagId = null;
+      render();
+      meldung(`♥ Gemerkt – ${heuteGeliked().length} heute`, () => {
+        if (vorher) z.likes[id] = vorher; else delete z.likes[id];
+        z.heute.vorschlagId = id;
+        speichern();
+        render();
+      });
+    },
+    'karte-like'() { karteWeg('rechts', AKTIONEN.like); },
+    'karte-essen'() { karteWeg('oben', AKTIONEN.essen); },
     'karte-nicht'() { karteWeg('links', AKTIONEN['nicht-heute']); },
     'karte-anders'() { karteWeg('oben', AKTIONEN.anderer); },
     'heute-aendern'() {
@@ -1288,6 +1533,91 @@
     },
 
     // Gerichte
+    // Likes & Entscheidungsrunde
+    'likes-modus'(el) {
+      ui.likesModus = el.dataset.wert;
+      render();
+    },
+    'like-essen'(el) {
+      const g = gerichtVon(el.dataset.id);
+      setzeEintrag(isoHeute(), { gerichtId: g.id });
+      location.hash = '#/';
+      meldung(`Guten Appetit! ${g.name} ist eingetragen.`);
+    },
+    'like-weg'(el) {
+      const id = el.dataset.id;
+      const vorher = [...(z.likes[id] || [])];
+      // In „Heute“ nur den heutigen Like entfernen, sonst alle
+      const rest = ui.likesModus === 'heute' ? vorher.filter((t) => t !== isoHeute()) : [];
+      if (rest.length) z.likes[id] = rest; else delete z.likes[id];
+      speichern();
+      render();
+      meldung('Like entfernt', () => { z.likes[id] = vorher; speichern(); render(); });
+    },
+    'runde-start'(el) {
+      rundeStarten(el.dataset.modus || ui.likesModus);
+      if (location.hash === '#/runde') render(); else location.hash = '#/runde';
+    },
+    'runde-ja'() { rundeWeiter(true); },
+    'runde-nein'() { rundeWeiter(false); },
+    'runde-ja-knopf'() { karteWeg('rechts', AKTIONEN['runde-ja']); },
+    'runde-nein-knopf'() { karteWeg('links', AKTIONEN['runde-nein']); },
+    'runde-essen'() {
+      const r = ui.runde;
+      const id = r.gewinner || r.stapel[0];
+      setzeEintrag(isoHeute(), { gerichtId: id });
+      ui.runde = null;
+      location.hash = '#/';
+      meldung(`Guten Appetit! ${gerichtVon(id).name} ist eingetragen.`);
+    },
+
+    // Katalog
+    'gerichte-quelle'(el) {
+      ui.gerichteQuelle = el.dataset.wert;
+      ui.gerichteFilter = '';
+      render();
+    },
+    'katalog-like'(el) {
+      const id = el.dataset.id;
+      if ((z.likes[id] || []).includes(isoHeute())) {
+        z.likes[id] = z.likes[id].filter((t) => t !== isoHeute());
+        if (!z.likes[id].length) delete z.likes[id];
+        speichern();
+      } else {
+        liken(id);
+        meldung('♥ Gemerkt');
+      }
+      render();
+    },
+    'gericht-heute'(el) {
+      const g = gerichtVon(el.dataset.id);
+      setzeEintrag(isoHeute(), { gerichtId: g.id });
+      location.hash = '#/';
+      meldung(`${g.name} ist für heute eingetragen`);
+    },
+    'katalog-kopie'(el) {
+      const g = gerichtVon(el.dataset.id);
+      ui.formular = { ...leeresGericht(), ...JSON.parse(JSON.stringify(g)), id: '', katalog: false, link: '' };
+      delete ui.formular.katalog;
+      ui.formularNeu = {};
+      location.hash = '#/gericht/neu';
+      meldung('Passe das Gericht an und speichere es.');
+    },
+    'katalog-aus'(el) {
+      const id = el.dataset.id;
+      z.katalogAus = z.katalogAus.includes(id) ? z.katalogAus.filter((x) => x !== id) : [...z.katalogAus, id];
+      if (z.heute.vorschlagId === id) z.heute.vorschlagId = null;
+      speichern();
+      render();
+      meldung(z.katalogAus.includes(id) ? 'Wird nicht mehr vorgeschlagen' : 'Wird wieder vorgeschlagen');
+    },
+    'katalog-umschalten'() {
+      z.einstellungen.katalog = !z.einstellungen.katalog;
+      vorschlagNeu();
+      render();
+      meldung(z.einstellungen.katalog ? 'Katalog-Gerichte werden vorgeschlagen' : 'Nur noch eigene Gerichte');
+    },
+
     'gerichte-filter'(el) {
       ui.gerichteFilter = el.dataset.wert;
       render();

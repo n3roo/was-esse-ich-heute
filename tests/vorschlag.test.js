@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { LEBENSMITTEL, BEISPIEL_GERICHTE, KATEGORIEN, slug } = require('../lebensmittel.js');
+const { GERICHTE_KATALOG } = require('../gerichte-katalog.js');
 const V = require('../vorschlag.js');
 
 const HEUTE = '2026-10-28';
@@ -33,6 +34,10 @@ const G = {
 function daten(extra = {}) {
   return { gerichte: Object.values(G), lebensmittel: LEBENSMITTEL, heute: HEUTE, ...extra };
 }
+
+// Alle Testgerichte gelten als Katalog-Gerichte, damit der Bonus fürs
+// eigene Gericht die Rechnungen nicht verschiebt (eigener Test weiter unten).
+Object.values(G).forEach((g) => { g.katalog = true; });
 
 function punkte(liste, id) {
   return liste.find((e) => e.gericht.id === id).punkte;
@@ -152,4 +157,32 @@ test('Keine Gerichte → kein Vorschlag', () => {
 test('tageZwischen ist unabhängig von Sommer-/Winterzeit', () => {
   assert.equal(V.tageZwischen('2026-10-24', '2026-10-26'), 2);
   assert.equal(V.tageZwischen('2026-03-28', '2026-03-30'), 2);
+});
+
+test('Katalog: über 150 Gerichte, eindeutige IDs, nur bekannte Zutaten', () => {
+  const ids = new Set(LEBENSMITTEL.map((l) => l.id));
+  assert.ok(GERICHTE_KATALOG.length >= 150, `nur ${GERICHTE_KATALOG.length}`);
+  assert.equal(new Set(GERICHTE_KATALOG.map((g) => g.id)).size, GERICHTE_KATALOG.length);
+  for (const g of GERICHTE_KATALOG) {
+    assert.ok(g.zeit > 0, g.name);
+    for (const z of g.zutaten) assert.ok(ids.has(z), `${g.name}: ${z} fehlt`);
+  }
+  // „vegetarisch“ wird passend zu den Zutaten gesetzt
+  const index = V.lebensmittelIndex(LEBENSMITTEL);
+  for (const g of GERICHTE_KATALOG) {
+    assert.equal(g.kategorien.includes('vegetarisch'), V.istVegetarisch(g, index), g.name);
+  }
+});
+
+test('Likes geben einen gedeckelten Bonus', () => {
+  const tage = (n) => Array.from({ length: n }, (_, i) => vorTagen(i + 20));
+  const liste = V.bewerteGerichte(daten({ likes: { curry: tage(1), fisch: tage(30) } }));
+  assert.equal(punkte(liste, 'curry'), V.KONFIG.bonusProLike);
+  assert.equal(punkte(liste, 'fisch'), V.KONFIG.bonusLikeMax);
+});
+
+test('Eigene Gerichte bekommen einen kleinen Vorsprung vor dem Katalog', () => {
+  const eigenes = { ...G.curry, id: 'eigen', katalog: false };
+  const liste = V.bewerteGerichte(daten({ gerichte: [G.curry, eigenes] }));
+  assert.equal(punkte(liste, 'eigen') - punkte(liste, 'curry'), V.KONFIG.bonusEigenesGericht);
 });

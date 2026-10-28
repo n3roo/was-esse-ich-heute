@@ -13,6 +13,7 @@
  *        − Zutaten, die ich nicht mag (deutlich stärker)
  *        − kürzlich gegessen (Abzug wird mit jedem Tag kleiner)
  *        + oft bestätigt / − oft „Nicht heute“
+ *        + oft geliked, + eigenes Gericht (statt Katalog)
  *        − gleiche Hauptzutat oder Kategorie wie an den Vortagen (Abwechslung)
  *        + Zutaten, die im Haus sind
  *   3. Aus den Punkten wird ein Gewicht: gewicht = e^(punkte / temperatur).
@@ -45,6 +46,11 @@
     bonusMax: 3,
     malusProNichtHeute: 0.75, // pro „Nicht heute“
     malusMax: 4,
+    bonusProLike: 0.5,      // pro Tag, an dem das Gericht geliked wurde
+    bonusLikeMax: 2.5,
+    // Selbst eingetragene Gerichte kennen und mögen wir – sie bekommen einen
+    // kleinen Vorsprung vor den Gerichten aus dem Katalog.
+    bonusEigenesGericht: 2,
 
     // Abwechslung: Wie viele Tage in Folge (ab gestern) gab es die gleiche
     // Hauptzutat / Kategorie? Abzug = faktor × serie², also
@@ -134,6 +140,7 @@
    *   bewertungen:    { lebensmittelId: 'mag' | 'nicht' | 'egal' }
    *   verlauf:        [{ datum: 'JJJJ-MM-TT', gerichtId?, zutaten? }]
    *   rueckmeldungen: { gerichtId: { nichtHeute: Zahl } }
+   *   likes:          { gerichtId: ['JJJJ-MM-TT', …] } – Tage, an denen es geliked wurde
    *   heute:          'JJJJ-MM-TT'
    *   filter:         { maxZeit?: Zahl, vegetarisch?: bool, imHaus?: [lebensmittelId] }
    *   ausgeschlossen: [gerichtId] – z. B. heute schon mit „Nicht heute“ abgelehnt
@@ -142,7 +149,7 @@
   function bewerteGerichte(daten, konfig = KONFIG) {
     const {
       gerichte = [], lebensmittel = [], bewertungen = {}, verlauf = [],
-      rueckmeldungen = {}, heute, filter = {}, ausgeschlossen = [],
+      rueckmeldungen = {}, likes = {}, heute, filter = {}, ausgeschlossen = [],
     } = daten;
     const index = lebensmittelIndex(lebensmittel);
     const gerichtNachId = new Map(gerichte.map((g) => [g.id, g]));
@@ -210,6 +217,9 @@
       const nichtHeute = (rueckmeldungen[gericht.id] || {}).nichtHeute || 0;
       plus(-round(Math.min(nichtHeute * konfig.malusProNichtHeute, konfig.malusMax)),
         `${nichtHeute}× „Nicht heute“`);
+      const geliked = (likes[gericht.id] || []).length;
+      plus(round(Math.min(geliked * konfig.bonusProLike, konfig.bonusLikeMax)), `${geliked}× geliked`);
+      if (!gericht.katalog) plus(konfig.bonusEigenesGericht, 'Eigenes Gericht');
 
       // Abwechslung: schlimmste Serie über alle Hauptzutaten / Kategorien
       let haupt = { serie: 0 }; let kat = { serie: 0 };

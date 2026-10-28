@@ -16,6 +16,7 @@ Eine kleine Progressive Web App, die abends ein Gericht vorschlägt – passend 
 | `app.js` | Oberfläche, Speicher, Navigation |
 | `vorschlag.js` | Vorschlagslogik (ohne Oberfläche, testbar) – alle Stellschrauben in `KONFIG` |
 | `lebensmittel.js` | Lebensmittelliste (über 200 Einträge) und Beispielgerichte |
+| `gerichte-katalog.js` | Katalog mit rund 165 gängigen Gerichten (eine Zeile pro Gericht, leicht erweiterbar) |
 | `sw.js`, `manifest.json`, `icons/` | PWA: Offline-Cache, Installation, Icons |
 | `fonts/` | Schrift Playfair Display (lokal, SIL Open Font License) |
 | `tests/` | Automatische Tests der Vorschlagslogik |
