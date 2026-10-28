@@ -1,0 +1,9 @@
+{
+  "name": "was-esse-ich-heute",
+  "private": true,
+  "description": "PWA für abendliche Essensvorschläge – ohne Build-Schritt",
+  "scripts": {
+    "test": "node --test",
+    "start": "node tools/server.js"
+  }
+}
